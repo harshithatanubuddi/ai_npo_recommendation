@@ -1,3 +1,5 @@
+# src/donor_recommender_ml.py
+
 import joblib
 import pandas as pd
 from sklearn.model_selection import train_test_split
@@ -5,9 +7,16 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import classification_report
 from sklearn.feature_extraction.text import TfidfVectorizer
 
+
 def train_donor_model(df: pd.DataFrame):
     df = df.copy()
-    df["text_features"] = df["donor_interest"].astype(str) + " " + df.get("tags", "").astype(str)
+    
+    # Safe concatenation of donor_interest and tags
+    if "tags" in df.columns:
+        df["text_features"] = df["donor_interest"].astype(str) + " " + df["tags"].astype(str)
+    else:
+        df["text_features"] = df["donor_interest"].astype(str)
+
     y = df["donated"].astype(int)
 
     vectorizer = TfidfVectorizer(stop_words='english', max_features=1500)
@@ -21,22 +30,34 @@ def train_donor_model(df: pd.DataFrame):
     print("Donor Model Performance:")
     print(classification_report(y_test, preds))
 
+    # Save models
+    os.makedirs("models", exist_ok=True)
     joblib.dump(model, "models/donor_recommender.joblib")
     joblib.dump(vectorizer, "models/donor_vectorizer.joblib")
+
     return model, vectorizer
 
-def recommend_for_donor(user_interest: str, df: pd.DataFrame, top_k=5):
-    model = joblib.load("models/donor_recommender.joblib")
-    vectorizer = joblib.load("models/donor_vectorizer.joblib")
 
-    # Prepare candidate texts: use donor_interest combined with tags/description
-    candidate_texts = (df.get("donor_interest", "") + " " + df.get("tags", "")).astype(str)
+def recommend_for_donor(user_interest: str, df: pd.DataFrame, top_k=5):
+    model_path = "models/donor_recommender.joblib"
+    vectorizer_path = "models/donor_vectorizer.joblib"
+
+    model = joblib.load(model_path)
+    vectorizer = joblib.load(vectorizer_path)
+
+    # Prepare candidate texts safely
+    if "tags" in df.columns:
+        candidate_texts = df["donor_interest"].astype(str) + " " + df["tags"].astype(str)
+    else:
+        candidate_texts = df["donor_interest"].astype(str)
+
     X_candidates = vectorizer.transform(candidate_texts)
     X_query = vectorizer.transform([user_interest])
 
-    # Use model probabilities as match score (apply to each candidate)
-    # Note: model expects same feature shape as trained; we use vectorizer on candidate texts
+    # Compute match probabilities
     probs = model.predict_proba(X_candidates)[:, 1]
+
     df = df.copy()
     df["match_score"] = probs
-    return df.sort_values("match_score", ascending=False).head(top_k)[["name", "tags", "match_score"]]
+
+    return df.sort_values("match_score", ascending=False).head(top_k)[["name", "tags" if "tags" in df.columns else "donor_interest", "match_score"]]
