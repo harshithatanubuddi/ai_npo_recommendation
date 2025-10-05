@@ -1,5 +1,4 @@
-# src/donor_recommender_ml.py
-
+import os
 import joblib
 import pandas as pd
 from sklearn.model_selection import train_test_split
@@ -7,11 +6,19 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import classification_report
 from sklearn.feature_extraction.text import TfidfVectorizer
 
-
 def train_donor_model(df: pd.DataFrame):
     df = df.copy()
-    
-    # Safe concatenation of donor_interest and tags
+
+    # Ensure donor_interest exists
+    if "donor_interest" not in df.columns:
+        df["donor_interest"] = df["tags"].apply(lambda x: x.split(",")[0] if isinstance(x, str) and x.strip() != "" else "general") \
+            if "tags" in df.columns else "general"
+
+    # Ensure donated column exists
+    if "donated" not in df.columns:
+        df["donated"] = 0  # fallback default (can be changed if you have real labels)
+
+    # Safely handle tags
     if "tags" in df.columns:
         df["text_features"] = df["donor_interest"].astype(str) + " " + df["tags"].astype(str)
     else:
@@ -30,13 +37,11 @@ def train_donor_model(df: pd.DataFrame):
     print("Donor Model Performance:")
     print(classification_report(y_test, preds))
 
-    # Save models
     os.makedirs("models", exist_ok=True)
     joblib.dump(model, "models/donor_recommender.joblib")
     joblib.dump(vectorizer, "models/donor_vectorizer.joblib")
 
     return model, vectorizer
-
 
 def recommend_for_donor(user_interest: str, df: pd.DataFrame, top_k=5):
     model_path = "models/donor_recommender.joblib"
